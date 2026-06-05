@@ -388,4 +388,4 @@ automating mandatory training — check the rules.
 
 ---
 
-**Bonus**: if this agent saves you / your company 100+ hours, plz give the repo a ⭐. That's enough.
+**Bonus**: if this agent saves you / your company 4+ hours, plz give the repo a ⭐. That's enough.
