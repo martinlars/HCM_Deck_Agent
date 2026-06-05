@@ -1,0 +1,36 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Runtime data (per-user run artifacts)
+data/*
+!data/.gitkeep
+
+# Browser-use cache / Chrome profile copy
+chrome-profile-copy/
+.browser_use/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs / diagnostics
+*.log
+*.jsonl

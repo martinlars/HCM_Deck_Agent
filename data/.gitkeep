@@ -1,0 +1,6 @@
+# This folder keeps the run-time artefacts created by the agent:
+#   - completed_courses.json  : durable checkpoint of finished courses
+#   - course_run_summary.json : last structured run summary
+#   - agent_run_<ts>.log      : full DEBUG log when --debug is on
+#   - frame_diagnostics.jsonl : per-snapshot iframe/DOM diagnostics
+# All contents are gitignored (see ../.gitignore) — only this .gitkeep is tracked.
