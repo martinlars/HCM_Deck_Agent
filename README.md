@@ -1,86 +1,89 @@
-# HCM Deck Course Agent
+ HCM Deck Course Agent
 
-> **Twoja firma kazała Ci zaliczyć 7 obowiązkowych szkoleń compliance do końca tygodnia?**
-> Każde po 90 minut. SCORM, quiz, NPS feedback, "kliknij każdy hotspot żeby przejść dalej".
-> Łącznie ~10 godzin klikania. Ten agent zrobi to za Ciebie w **3 godziny w tle** — Ty
-> w tym czasie pracujesz, a wieczorem masz wszystkie kursy ✅ zaliczone na 100%.
+> **Your company told you to finish 7 mandatory compliance trainings by Friday?**
+> 90 minutes each. SCORM, quizzes, NPS feedback, "click every hotspot to advance".
+> ~10 hours of clicking total. This agent does it for you in **3 hours in the
+> background** — you get on with real work, by evening every course is ✅ at 100%.
 
-Autonomiczny agent przeglądarki dla platformy **HCM Deck** (popularny w Polsce
-LMS używany przez wiele dużych firm do obowiązkowych szkoleń compliance).
-Loguje się przez SSO Twojego firmowego
-Microsoft / Google konta, znajduje **wszystkie** kursy/testy/szkolenia na platformie,
-przerabia je strona po stronie, rozwiązuje quizy (z retry przy błędnych odpowiedziach),
-zatwierdza NPS feedback i weryfikuje że dashboard naprawdę pokazuje 100% — nie tylko
-że SCORM player wyświetlił "Bye!".
+An autonomous browser agent for **HCM Deck** (a popular LMS in Central/Eastern
+Europe used by many large enterprises for mandatory compliance training). It
+signs in through your corporate SSO, finds **every** course/test/training on
+the platform, walks through them page by page, solves quizzes (with retry on
+wrong answers), submits the NPS feedback, and verifies that the dashboard
+actually shows 100% — not just that the SCORM player printed "Bye!".
 
-Zbudowany na [browser-use](https://github.com/browser-use/browser-use) (open-source).
-Pracuje w **Twoim** Chrome z **Twoimi** zalogowanymi sesjami — nie wpisuje haseł,
-nie wycieka cookies, niczego nie wysyła poza wybranego dostawcę LLM.
+Built on top of [browser-use](https://github.com/browser-use/browser-use)
+(open-source). Runs inside **your** Chrome with **your** signed-in sessions —
+never types passwords, doesn't exfiltrate cookies, doesn't ship anything
+anywhere except your chosen LLM provider.
 
 ---
 
-## Dlaczego to istnieje (kontekst z prawdziwego runu)
+## Why this exists (real-run context)
 
-Typowy korporacyjny pakiet onboardingowy / compliance to:
+A typical corporate onboarding / compliance pack looks like this:
 
-| Kurs | Czas ręcznie | Co tam jest |
+| Course | Manual time | What's inside |
 |---|---|---|
-| Phishing Awareness | 30–45 min | slajdy + 10-pytaniowy test |
-| Anti-Corruption Policy | 60 min | multi-modułowe, hotspoty, quiz |
-| Mobbing & Discrimination | 90 min | 3 sekcje × 22 strony + quiz + NPS |
-| Working remotely | 60 min | interaktywne hotspoty, quiz |
-| Inclusive Language | 75 min | 3 moduły × kilkanaście slajdów |
-| Rules of feedback | 60 min | 5 sekcji + accordeony + video + quiz |
-| Mandatory Poland path | 90 min | ścieżka 3 powiązanych kursów |
-| **RAZEM** | **~7,5–10h** | ~600 kliknięć, ~50 odpowiedzi w quizach |
+| Phishing Awareness | 30–45 min | slides + 10-question test |
+| Anti-Corruption Policy | 60 min | multi-module, hotspots, quiz |
+| Mobbing & Discrimination | 90 min | 3 sections × 22 pages + quiz + NPS |
+| Working remotely | 60 min | interactive hotspots, quiz |
+| Inclusive Language | 75 min | 3 modules × ~15 slides |
+| Rules of feedback | 60 min | 5 sections + accordions + video + quiz |
+| Mandatory country path | 90 min | a chained path of 3 courses |
+| **TOTAL** | **~7.5–10 h** | ~600 clicks, ~50 quiz answers |
 
-**Run agenta na powyższym pakiecie**: 56 kroków LLM, 0 błędów, **100% zaliczone, ~3h
-clock time** (w tym czasie komputer pracuje, Ty robisz co innego). Realne dane z
-ostatniego runu — `data/course_run_summary.json`.
+**An agent run over that pack**: 56 LLM steps, 0 errors, **100% completed,
+~3h wall-clock** (during which the computer works, you do something else).
+Real data from the latest run — `data/course_run_summary.json`.
 
-### Co dokładnie ten agent umie czego nie umieją inne "browser bots"
+### What this agent does that other "browser bots" don't
 
-- **Vision-first nawigacja przez cross-origin SCORM iframes** (OOPIF CDP attach
-  per-frame) — SCORM-y na HCM Deck są w nested iframe na innym origin, klasyczne
-  DOM-tools są ślepe. Agent zrzuca screenshot, pyta LLM "gdzie jest NASTĘPNY",
-  klika przez CDP coordinate click.
-- **Interactive Stall Escape Protocol** — gdy slajd ma canvas/SVG/drag-and-drop
-  interaktyw którego ani DOM, ani vision nie ruszają (np. "kliknij każdy z 4
-  punktów na mapie"), agent uruchamia kaskadę: brute-grid (24 punkty kliknięcia
-  6×4) → keypress (Space/Enter/ArrowRight) → drag-drop probe → page navigation
-  fallback. To uratowało Mobbing course, który poprzedni run zablokował na
-  Page 10/22.
-- **Anti-lie completion verification** — `verify_course_completion()` przed każdym
-  zapisaniem SUCCESS-u wraca na dashboard i czyta REALNY badge progress (%,
-  "Ukończone", `aria-valuenow` na progress barze). `mark_course_done(SUCCESS)`
-  jest twardo odrzucone bez verified=True. Ten guard wziął się z prawdziwego
-  bugu: agent zobaczył "End of module 1" w trzymodułowym kursie, uznał za
-  100% — dashboard pokazywał 33%. Teraz to niemożliwe.
-- **Signature-based anti-loop** — klasyczny "ten sam tool z tymi samymi args
-  ≥4 razy" + drugi guard: "≥8 wywołań DOWOLNYCH narzędzi bez zmiany snapshot
-  signature ⇒ HARD_ANTI_LOOP_STAGNATION + wymuszenie escape protocol".
-- **Durable checkpoint** — każdy ukończony kurs zapisywany do
-  `data/completed_courses.json` od razu po `mark_course_done`. Awaria
-  agenta po 2 godzinach nie traci zrobionej roboty — ponowny start wczytuje
-  i pomija to co już zrobione.
-- **Strukturalny output** (Pydantic) — gotowy raport JSON z per-course
-  scoringiem, statusem, blockerami i listą podjętych akcji. Wpinasz do
-  ServiceNow / Jiry / dashboardu reportingowego bez parsowania tekstu.
-- **3000-stepowy budget + fallback LLM** — długie kursy nie wykolejają runu.
-  Drugi profil LLM (minimal effort, temp 0) wskakuje przy pustym JSON-ie
-  z model-routera Azure.
+- **Vision-first navigation through cross-origin SCORM iframes** (per-frame
+  OOPIF CDP attach) — HCM Deck SCORMs live inside a nested iframe on a
+  different origin; classic DOM tools are blind. The agent screenshots the
+  viewport, asks the vision LLM "where is the NEXT button", clicks via CDP
+  coordinate click.
+- **Interactive Stall Escape Protocol** — when a slide has a canvas/SVG/
+  drag-and-drop interactive that neither DOM nor vision can move (e.g.
+  "click each of 4 points on the map"), the agent fires a cascade: brute-grid
+  (24 click points 6×4) → keypress (Space/Enter/ArrowRight) → drag-drop probe
+  → page-navigation fallback. This rescued the Mobbing course, which an
+  earlier run had been stuck on at Page 10/22.
+- **Anti-lie completion verification** — `verify_course_completion()` is
+  called before every SUCCESS save; it returns to the dashboard and reads
+  the REAL progress badge (%, "Completed", `aria-valuenow` on the progress
+  bar). `mark_course_done(SUCCESS)` is hard-rejected without `verified=True`.
+  This guard came from a real bug: the agent saw "End of module 1" in a
+  three-module course, marked it as 100% — the dashboard was showing 33%.
+  Now that's impossible.
+- **Signature-based anti-loop** — the classic "same tool with same args ≥4
+  times" plus a second guard: "≥8 calls of ANY tools without a change in
+  snapshot signature ⇒ HARD_ANTI_LOOP_STAGNATION + force the escape protocol".
+- **Durable checkpoint** — every finished course is written to
+  `data/completed_courses.json` immediately on `mark_course_done`. A crash
+  2 hours into a run doesn't lose the work — a re-run reads the checkpoint
+  and skips what's already done.
+- **Structured output** (Pydantic) — a ready-to-consume JSON report with
+  per-course scoring, status, blockers and a list of actions taken. Pipe it
+  straight into ServiceNow / Jira / a reporting dashboard with no text
+  parsing.
+- **3000-step budget + fallback LLM** — long courses don't derail the run.
+  A second LLM profile (minimal effort, temp 0) kicks in when Azure's
+  model-router returns an empty JSON.
 
 ---
 
-## Architektura w 60 sekund
+## 60-second architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Twój Chrome (Twój profil, Twoje SSO cookies)               │
+│  Your Chrome (your profile, your SSO cookies)               │
 │  ┌─ HCM Deck dashboard ─┐  ┌─ SCORM popup ────────────────┐ │
-│  │ Do zrobienia (7)     │  │  runLessonContainer iframe   │ │
-│  │ W trakcie  (3)       │  │   └─ lessonFrame (OOPIF)     │ │
-│  │ Katalog    (12)      │  │       └─ Twój SCORM content  │ │
+│  │ To do      (7)       │  │  runLessonContainer iframe   │ │
+│  │ In progress (3)      │  │   └─ lessonFrame (OOPIF)     │ │
+│  │ Catalog    (12)      │  │       └─ your SCORM content  │ │
 │  └─────────▲────────────┘  └──────────────▲───────────────┘ │
 └────────────┼───────────────────────────────┼─────────────────┘
              │ CDP (Chrome DevTools Protocol) per-frame
@@ -100,148 +103,153 @@ ostatniego runu — `data/course_run_summary.json`.
 └────────────────────────▲─────────────────────────────────────┘
                          │ Chat Completions API
                   ┌──────┴──────────────┐
-                  │ Azure OpenAI        │  ← REKOMENDOWANE
+                  │ Azure OpenAI        │  ← RECOMMENDED
                   │   gpt-5-chat / 4o   │
-                  │  lub Anthropic /    │
+                  │  or Anthropic /     │
                   │  OpenAI / Gemini    │
                   └─────────────────────┘
 ```
 
 ---
 
-## Instalacja — 5 kroków, 10 minut
+## Install — 5 steps, 10 minutes
 
-### Wymagania wstępne
+### Prerequisites
 
-- **Windows 10/11** (Linux/macOS będą działać po drobnych zmianach ścieżek
-  Chrome — patrz `agents/course_agent.py:53-57`)
-- **Python 3.11 lub 3.12** — pobierz z [python.org](https://www.python.org/downloads/)
-  lub `winget install Python.Python.3.12`. Zaznacz "Add to PATH".
-- **Google Chrome** zainstalowany z Twoim firmowym SSO już zalogowanym
-- **Klucz API do LLM** (Azure OpenAI / Anthropic / OpenAI / Google — patrz dalej)
+- **Windows 10/11** (Linux/macOS will work after small Chrome-path tweaks
+  in `agents/course_agent.py:53-57`)
+- **Python 3.11 or 3.12** — grab it from
+  [python.org](https://www.python.org/downloads/) or
+  `winget install Python.Python.3.12`. Tick "Add to PATH".
+- **Google Chrome** installed with your corporate SSO already signed in
+- **An LLM API key** (Azure OpenAI / Anthropic / OpenAI / Google — see below)
 
-### Krok 1 — sklonuj repo i wejdź do folderu
+### Step 1 — clone and enter the folder
 
 ```powershell
-git clone https://github.com/<TWOJ-USER>/hcm-deck-agent.git
+git clone https://github.com/<YOUR-USER>/hcm-deck-agent.git
 cd hcm-deck-agent
 ```
 
-### Krok 2 — odblokuj PowerShell (jednorazowo)
+### Step 2 — unblock PowerShell (one-time)
 
-W PowerShell **jako administrator**:
+In PowerShell **as administrator**:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-Jeśli to problem — użyj `install.bat` zamiast `install.ps1`.
+If that's a problem — use `install.bat` instead of `install.ps1`.
 
-### Krok 3 — uruchom instalator
+### Step 3 — run the installer
 
 ```powershell
 .\install.ps1
 ```
 
-Instalator zrobi: weryfikacja Pythona → instalacja `uv` → utworzenie `.venv` →
-instalacja zależności → pobranie Chromium (~130 MB; pomijalne jeśli używasz
-własnego Chrome) → utworzenie `.env` z szablonu.
+The installer: verify Python → install `uv` → create `.venv` → install
+dependencies → download Chromium (~130 MB; skippable if you already have a
+Chrome profile you want to reuse) → create `.env` from the template.
 
-### Krok 4 — wypełnij `.env`
+### Step 4 — fill in `.env`
 
 ```powershell
 notepad .env
 ```
 
-Trzy rzeczy są obowiązkowe:
+Three things are required:
 
-1. `HCM_DASHBOARD_URL` — np. `https://acme.hcmdeck.com/protected/home`
-2. **Klucze LLM** — patrz [LLM configuration](#llm-configuration--co-rekomendujemy)
-3. `CHROME_EXE` / `CHROME_USER_DATA` — tylko jeśli Chrome jest w niestandardowym
-   miejscu (domyślne wartości pasują do typowej instalacji Windows)
+1. `HCM_DASHBOARD_URL` — e.g. `https://acme.hcmdeck.com/protected/home`
+2. **LLM keys** — see [LLM configuration](#llm-configuration--what-we-recommend)
+3. `CHROME_EXE` / `CHROME_USER_DATA` — only if Chrome lives somewhere
+   non-default (the defaults match a stock Windows install)
 
-### Krok 5 — uruchom agenta
+### Step 5 — run the agent
 
 ```powershell
 .\.venv\Scripts\activate
-python agents\course_agent.py --smoke-test       # walidacja konfiguracji
-python agents\course_agent.py --debug            # pełny run, 3000 kroków
+python agents\course_agent.py --smoke-test       # validate the wiring
+python agents\course_agent.py --debug            # full run, 3000 steps
 ```
 
-Polecam pierwszy run zrobić jak idziesz na obiad / mityng / spać. Agent pracuje
-w tle, możesz monitorować postęp w `data/agent_run_<ts>.log`.
+Recommended first run: kick it off as you go to lunch / a meeting / sleep.
+The agent works in the background, you can watch progress in
+`data/agent_run_<ts>.log`.
 
 ---
 
-## LLM configuration — co rekomendujemy
+## LLM configuration — what we recommend
 
-Z czego korzystaliśmy podczas budowy i co rekomendujemy:
+What we used while building this and what we recommend:
 
-### 🥇 Azure OpenAI / Foundry — REKOMENDOWANE dla firm
+### 🥇 Azure OpenAI / Foundry — RECOMMENDED for companies
 
-Najlepszy stosunek jakości do kosztów, jeśli Twoja organizacja już ma
-Azure OpenAI resource. Co ważne — przy SSO Twojego firmowego konta nie
-wychodzisz poza tenanta z żadnymi danymi.
+Best quality-to-cost ratio if your organisation already has an Azure OpenAI
+resource. Importantly — when paired with your corporate SSO, no data
+leaves your tenant.
 
-**Najlepsze deploymenty (kolejność preferencji)**:
+**Best deployments (in order of preference)**:
 
-| Model | Typ | Czemu | Uwagi |
+| Model | Type | Why | Notes |
 |---|---|---|---|
-| **`gpt-5-chat-2025-10-03`** | multimodal flagship preview | Najlepszy do vision-heavy UI nav | Wymaga deploymentu, ~$2-5/run |
-| **`gpt-5-chat-2025-08-07`** | multimodal preview (older) | Sprawdzony, stabilny | Wymaga deploymentu |
-| **`gpt-4o-2024-11-20`** | proven multimodal | Niezawodny baseline, GA | Wymaga deploymentu |
-| **`model-router-2025-11-18`** | router GA (newest) | Auto-route do gpt-5-chat dla vision | Najprostszy: 1 deployment na wszystko |
+| **`gpt-5-chat-2025-10-03`** | multimodal flagship preview | Best for vision-heavy UI nav | Needs a deployment, ~$2-5/run |
+| **`gpt-5-chat-2025-08-07`** | multimodal preview (older) | Proven, stable | Needs a deployment |
+| **`gpt-4o-2024-11-20`** | proven multimodal | Reliable baseline, GA | Needs a deployment |
+| **`model-router-2025-11-18`** | router GA (newest) | Auto-routes to gpt-5-chat for vision | Simplest: 1 deployment, fits everything |
 
-**Jak zdeployować w Azure** (potrzebny dostęp do Azure Portal):
+**How to deploy in Azure** (needs Azure Portal access):
 
-1. Wejdź do Azure Portal → swój Azure OpenAI / Foundry resource
-2. Lewy panel → **"Model deployments"** → **"Manage Deployments"** (otwiera Azure AI Studio)
-3. **"Create new deployment"** → wybierz np. `gpt-5-chat` (wersja `2025-10-03`)
-4. Nazwij deployment (np. `gpt-5-chat-prod`), zostaw default capacity (TPM)
-5. W `.env`:
+1. Azure Portal → your Azure OpenAI / Foundry resource
+2. Left panel → **"Model deployments"** → **"Manage Deployments"** (opens Azure AI Studio)
+3. **"Create new deployment"** → pick e.g. `gpt-5-chat` (version `2025-10-03`)
+4. Name the deployment (e.g. `gpt-5-chat-prod`), leave default capacity (TPM)
+5. In `.env`:
    ```
-   AZURE_OPENAI_API_KEY=<klucz_z_resource_keys_and_endpoint>
+   AZURE_OPENAI_API_KEY=<key from resource Keys & Endpoint>
    AZURE_OPENAI_ENDPOINT=https://<resource-name>.cognitiveservices.azure.com
    AZURE_OPENAI_DEPLOYMENT=gpt-5-chat-prod
    AZURE_OPENAI_API_VERSION=2025-01-01-preview
    ```
 
-**Jeśli admin Azure nie chce/nie może zdeployować dedykowanego modelu**: użyj
-`model-router-2025-11-18` (lub jakikolwiek model-router-* dostępny). To
-"router" — automatycznie routuje request do podmodelu w zależności od
-złożoności. Vision payload zwykle ląduje na gpt-5-chat. Agent ma wbudowany
-`fallback_llm` na wypadek gdy router się pomyli i zwróci pusty JSON.
+**If your Azure admin won't / can't deploy a dedicated model**: use
+`model-router-2025-11-18` (or any `model-router-*` available). It's a
+"router" — automatically routes the request to a sub-model based on
+complexity. Vision payloads usually land on gpt-5-chat. The agent ships
+with a built-in `fallback_llm` in case the router misroutes and returns
+an empty JSON.
 
-### 🥈 Anthropic Claude — najlepsza jakość per dolar dla research/jednorazowych runów
+### 🥈 Anthropic Claude — best quality per dollar for research / one-shot runs
 
-Jeśli nie masz Azure: Claude Sonnet 4.6 / Opus 4.7 jest **najsilniejszy** w
-złożonym reasoningu typu "jakie pytanie jest na ekranie i co odpowiedzieć".
-Natywna obsługa vision. Cena: ~$0.05/run dla typowego pakietu compliance.
+If you don't have Azure: Claude Sonnet 4.6 / Opus 4.7 is the **strongest**
+model for the kind of complex reasoning needed for "what's the question
+on the screen and what to answer". Native vision support. Cost:
+~$0.05/run for a typical compliance pack.
 
-Wymaga zamiany `create_llm()` w `agents/course_agent.py` na `ChatAnthropic`:
+Requires swapping `create_llm()` in `agents/course_agent.py` to
+`ChatAnthropic`:
 
 ```python
 from browser_use import ChatAnthropic
-return ChatAnthropic(model="claude-sonnet-4-6")  # albo claude-opus-4-7
+return ChatAnthropic(model="claude-sonnet-4-6")  # or claude-opus-4-7
 ```
 
-Plus w `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
+Plus in `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
 
-### 🥉 OpenAI direct — najprostsza ścieżka
+### 🥉 OpenAI direct — simplest path
 
-Bez Azure, bez deploymentów. Po prostu klucz z platform.openai.com:
+No Azure, no deployments. Just a key from platform.openai.com:
 
 ```python
 from browser_use import ChatOpenAI
-return ChatOpenAI(model="gpt-5")  # albo gpt-4o, gpt-5-chat-latest
+return ChatOpenAI(model="gpt-5")  # or gpt-4o, gpt-5-chat-latest
 ```
 
-`.env`: `OPENAI_API_KEY=sk-...`. Koszt ~$3-8/run.
+`.env`: `OPENAI_API_KEY=sk-...`. Cost ~$3-8/run.
 
-### 🪶 Google Gemini — najtańszy
+### 🪶 Google Gemini — cheapest
 
-`gemini-2.5-flash` ~$0.01/run. Vision OK ale słabszy reasoning od Claude/GPT-5.
-Dobry do prostych, jednomodułowych kursów.
+`gemini-2.5-flash` ~$0.01/run. Vision is OK but reasoning is weaker than
+Claude / GPT-5. Good for simple, single-module courses.
 
 ```python
 from browser_use import ChatGoogle
@@ -252,131 +260,132 @@ return ChatGoogle(model="gemini-2.5-flash")
 
 ---
 
-## Oszczędność czasu — konkretne liczby
+## Time saved — concrete numbers
 
-| Scenariusz | Ręcznie | Z agentem | Oszczędność |
+| Scenario | Manual | With agent | Saved |
 |---|---:|---:|---:|
-| **Nowy pracownik — obowiązkowy onboarding pack** (7 kursów) | 7.5–10 h | 3 h wall-clock, 0 h pracy (działa w tle) | **~9 godzin / osoba** |
-| **Roczna rotacja compliance** (Phishing + RODO + Anti-Bribery odświeżenie) | 3–4 h × cała firma 200 osób = 700 h | 200 osób × 0 h pracy = 0 h | **~700 godzin / rok** |
-| **Audyt przed certyfikacją ISO** (dokumentacja przeszkolenia) | 2 dni manualnego klikania | nocny run + JSON raport | **2 dni / audyt** |
-| **Nowa rola wymaga 3 specjalistycznych ścieżek HCM** | 4–6 h | 1.5 h w tle | **5 godzin / osoba** |
+| **New hire — mandatory onboarding pack** (7 courses) | 7.5–10 h | 3 h wall-clock, 0 h of your work (runs in background) | **~9 hours / person** |
+| **Annual compliance refresh** (Phishing + GDPR + Anti-Bribery) | 3–4 h × 200-person company = 700 h | 200 people × 0 h of work = 0 h | **~700 hours / year** |
+| **Pre-ISO certification audit** (training documentation) | 2 days of manual clicking | overnight run + JSON report | **2 days / audit** |
+| **New role requires 3 specialised HCM paths** | 4–6 h | 1.5 h in background | **5 hours / person** |
 
-**Twardy zwrot z inwestycji**: jednorazowo 10 minut setupu, każda osoba w firmie
-oszczędza średnio 9 godzin × średnie wynagrodzenie. Dla firmy 100-osobowej:
-~900 godzin × ~150 zł/h = **~135,000 zł / rok zaoszczędzone**.
+**Hard ROI**: 10-minute one-time setup, every person in the company saves
+~9 hours × average hourly comp. For a 100-person company:
+~900 hours × ~$35/h = **~$31,500 / year saved**.
 
-Co ważniejsze niż pieniądze: **agent nie traci koncentracji w 47. minucie
-phishing-awareness slajdshow**. Quiz score zwykle 100% (przy ręcznym klikaniu
-"żeby było" pracownicy często dostają 60-80%). Compliance officer dostaje
-deterministyczne, audytowalne wyniki w JSON.
+More important than the money: **the agent doesn't lose focus on minute 47
+of a phishing awareness slide-show**. Quiz scores are typically 100%
+(when humans click "just to be done" they often score 60-80%). The
+compliance officer receives deterministic, auditable results in JSON.
 
 ---
 
-## Uruchamianie — przykłady
+## Running — examples
 
 ```powershell
-# Walidacja: czy wszystko dobrze podpięte, bez uruchamiania przeglądarki
+# Validation: is everything wired correctly, without launching a browser
 python agents\course_agent.py --smoke-test
 
-# Standardowy full-sweep platformy (3000 kroków, 100% pokrycia)
+# Standard full platform sweep (3000 steps, 100% coverage)
 python agents\course_agent.py --debug
 
-# Konkretny kurs / ścieżka rozwoju (zamiast całej platformy)
+# A specific course / development path (instead of the whole platform)
 python agents\course_agent.py --url "https://acme.hcmdeck.com/protected/lessonPopup?courseId=12345"
 
-# Mniejszy budget kroków (szybciej, dla testów / pojedynczego kursu)
+# Smaller step budget (faster, for testing / single course)
 python agents\course_agent.py --max-steps 300 --target-score 81
 
-# Reset checkpointu (świeży sweep, ignoruj data/completed_courses.json)
+# Reset checkpoint (fresh sweep, ignore data/completed_courses.json)
 python agents\course_agent.py --debug --reset-checkpoint
 
-# Headless (bez okna przeglądarki — dla servera / CI)
+# Headless (no browser window — for server / CI)
 python agents\course_agent.py --debug --headless
 ```
 
 ---
 
-## Wyniki / artefakty
+## Results / artefacts
 
-Po runie znajdziesz w `data/`:
+After a run you'll find in `data/`:
 
-| Plik | Co zawiera |
+| File | Contains |
 |---|---|
-| `course_run_summary.json` | Strukturalny raport: per-course status, score, blockery, akcje |
-| `completed_courses.json` | Durable checkpoint — pamięta co już zrobione między runami |
-| `agent_run_<ts>.log` | Pełny DEBUG log (gdy `--debug`); ~200 KB–1 MB per run |
-| `frame_diagnostics.jsonl` | Per-snapshot diagnostyka iframe/DOM (do debugowania nowych SCORM playerów) |
+| `course_run_summary.json` | Structured report: per-course status, score, blockers, actions |
+| `completed_courses.json` | Durable checkpoint — remembers what's done across runs |
+| `agent_run_<ts>.log` | Full DEBUG log (when `--debug`); ~200 KB–1 MB per run |
+| `frame_diagnostics.jsonl` | Per-snapshot iframe/DOM diagnostics (for debugging new SCORM players) |
 
 ---
 
-## Bezpieczeństwo
+## Security
 
-- **`.env` jest w `.gitignore`** — nigdy nie commitujesz kluczy
-- **Agent używa Twojego Chrome z Twoim profilem** — to znaczy ma dostęp do
-  wszystkich Twoich zalogowanych kont. Nie uruchamiaj go z dziwnymi promptami /
-  na promptach z nieznanego źródła
-- **Zamknij Chrome przed startem agenta** — Chrome locks user-data-dir,
-  jednoczesny dostęp = błąd startu
-- **SSO recovery only by click** — agent ma w prompt twardą regułę "NIGDY nie
-  wpisuj hasła; jeśli widzisz SSO login screen, klikaj tylko 'Zaloguj' i czekaj
-  na cached cookie redirect"
-- **Zero exfiltracji** — agent gada wyłącznie z: (a) wybranym dostawcą LLM,
-  (b) Twoim Chrome przez CDP, (c) lokalnym diskiem (`data/`). Nic nie wysyła
-  na żadne webhooki / telemetry serwery (oprócz anonimowej telemetrii browser-use
-  którą można wyłączyć — patrz [browser-use docs](https://docs.browser-use.com/development/monitoring/telemetry))
+- **`.env` is in `.gitignore`** — you never commit keys
+- **The agent uses YOUR Chrome with YOUR profile** — meaning it has access
+  to all your signed-in accounts. Don't run it with weird prompts / prompts
+  from an unknown source
+- **Close Chrome before starting the agent** — Chrome locks the
+  user-data-dir; concurrent access = startup error
+- **SSO recovery is click-only** — the agent has a hard rule in the prompt:
+  "NEVER type a password; if you see an SSO login screen, only click 'Sign
+  in' and wait for the cached cookie redirect"
+- **Zero exfiltration** — the agent talks exclusively with: (a) your chosen
+  LLM provider, (b) your Chrome over CDP, (c) the local disk (`data/`).
+  Nothing is sent to any webhooks / telemetry servers (other than
+  browser-use's anonymous telemetry, which you can opt out of — see
+  [browser-use docs](https://docs.browser-use.com/development/monitoring/telemetry))
 
 ---
 
-## Częste problemy
+## Common problems
 
-| Objaw | Rozwiązanie |
+| Symptom | Fix |
 |---|---|
-| `running scripts is disabled on this system` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (jako admin) |
-| `python` nie jest rozpoznawane | Reinstaluj Pythona z włączoną "Add to PATH" |
-| `Executable doesn't exist` / Chrome nie startuje | Aktywuj venv, `uvx browser-use install` |
-| `.env` nie czytany | Notepad zapisał jako `.env.txt` — włącz "Pokaż rozszerzenia plików" |
-| Chrome błąd przy starcie z profilem | Masz otwarte okna Chrome — zamknij WSZYSTKIE (włącznie z background) |
-| LLM zwraca puste JSON-y | Sprawdź czy `AZURE_OPENAI_DEPLOYMENT` to model multimodalny (gpt-5-chat / gpt-4o), nie samo gpt-5-nano |
-| Agent kręci się na slajdzie | Powinien wykryć i odpalić `INTERACTIVE STALL ESCAPE`. Jeśli nie — sprawdź w logu czy `HARD_ANTI_LOOP_STAGNATION` się odpalił. Zgłoś issue z fragmentem logu |
-| `verify_course_completion` zawsze NOT_FOUND | Agent musi być NA dashboardzie / catalog gdy weryfikuje. Sprawdź prompt — agent powinien wrócić do dashboard przed `verify_course_completion()` |
+| `running scripts is disabled on this system` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (as admin) |
+| `python` is not recognised | Reinstall Python with "Add to PATH" enabled |
+| `Executable doesn't exist` / Chrome won't start | Activate venv, `uvx browser-use install` |
+| `.env` not being read | Notepad saved it as `.env.txt` — enable "Show file extensions" |
+| Chrome errors on profile start | You have other Chrome windows open — close ALL (including background) |
+| LLM returns empty JSON | Verify `AZURE_OPENAI_DEPLOYMENT` is a multimodal model (gpt-5-chat / gpt-4o), not bare gpt-5-nano |
+| Agent loops on one slide | It should detect this and fire `INTERACTIVE STALL ESCAPE`. If not — check the log for `HARD_ANTI_LOOP_STAGNATION`. Open an issue with a log snippet |
+| `verify_course_completion` always NOT_FOUND | The agent must be ON the dashboard / catalog when verifying. Check the prompt — agent should return to dashboard before `verify_course_completion()` |
 
 ---
 
-## Wkład / rozszerzanie
+## Contributing / extending
 
-Repo jest celowo małe: jedno `agents/course_agent.py` z 16 toolami custom +
-agent loop browser-use. Jeśli chcesz dodać support dla innego LMS-a
-(Moodle, Canvas, Cornerstone, SuccessFactors), wystarczy:
+The repo is intentionally small: one `agents/course_agent.py` with 16
+custom tools + browser-use's agent loop. If you want to add support for
+another LMS (Moodle, Canvas, Cornerstone, SuccessFactors), it's enough to:
 
-1. Skopiować `agents/course_agent.py` na np. `agents/moodle_agent.py`
-2. Dostosować `build_task()` — Polish UI keywords → keywords platformy
-3. Dostosować `enumerate_platform_catalog` JS selectors do struktury DOM
-4. Dostosować `verify_course_completion` JS — gdzie tam jest progress badge
-5. SCORM tools (`scorm_state`, `scorm_force`, escape tools) działają
-   uniwersalnie — większość LMS-ów używa SCORM 2004 + iframe
+1. Copy `agents/course_agent.py` to e.g. `agents/moodle_agent.py`
+2. Adjust `build_task()` — replace HCM Deck UI keywords with the platform's
+3. Adjust `enumerate_platform_catalog` JS selectors to the platform's DOM
+4. Adjust `verify_course_completion` JS — where the platform's progress
+   badge lives
+5. The SCORM tools (`scorm_state`, `scorm_force`, escape tools) work
+   universally — most LMSes use SCORM 2004 + iframe
 
-Pull requesty mile widziane.
-
----
-
-## Licencja
-
-MIT — patrz [LICENSE](LICENSE). Krótko: rób co chcesz, autor nie ponosi
-odpowiedzialności. Pamiętaj że Twoja firma może mieć policy zabraniające
-automatyzacji obowiązkowych szkoleń — sprawdź regulamin.
+Pull requests welcome.
 
 ---
 
-## Podziękowania
+## License
 
-- [browser-use](https://github.com/browser-use/browser-use) — biblioteka która
-  to wszystko robi możliwym (vision LLM + CDP + tool calling w jednym pakiecie)
-- HCM Deck team — za platformę która ma działający SSO i rozumie SCORM 2004
-- Każdy kto kiedykolwiek musiał kliknąć "Next" 600 razy w obowiązkowym
-  szkoleniu o phishingu
+MIT — see [LICENSE](LICENSE). In short: do what you want, the author is
+not liable. Remember that your company may have a policy against
+automating mandatory training — check the rules.
 
 ---
 
-**Bonus**: jeśli ten agent zaoszczędzi Tobie/Twojej firmie 100+ godzin —
-postaw mi kawę przez [GitHub Sponsors](https://github.com/sponsors). Albo
-po prostu daj ⭐ repo. To wystarczy.
+## Acknowledgements
+
+- [browser-use](https://github.com/browser-use/browser-use) — the library
+  that makes this possible (vision LLM + CDP + tool calling in one package)
+- The HCM Deck team — for a platform with working SSO that understands
+  SCORM 2004
+- Everyone who has ever had to click "Next" 600 times in a mandatory
+  phishing awareness training
+
+---
+
+**Bonus**: if this agent saves you / your company 100+ hours, plz give the repo a ⭐. That's enough.
