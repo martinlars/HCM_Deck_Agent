@@ -1,4 +1,4 @@
- HCM Deck Course Agent
+# HCM Deck Course Agent
 
 > **Your company told you to finish 7 mandatory compliance trainings by Friday?**
 > 90 minutes each. SCORM, quizzes, NPS feedback, "click every hotspot to advance".
